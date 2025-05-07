@@ -16,13 +16,18 @@ python dicom_viewer_with_gdcm.py \
 
 ```python
 python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICOM --output /thư/mục/đầu/ra
+```
 
+```python
 # Hay Để tiết kiệm không gian lưu trữ, bạn có thể sử dụng tùy chọn tạo liên kết (symbolic link):
 python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICOM --output /thư/mục/đầu/ra --link
+```
 
+```python
 # Điều chỉnh số luồng xử lý song song để tăng tốc độ:
 python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICOM --output /thư/mục/đầu/ra --workers 8
 ```
+
 
 ### Cấu Trúc Thư Mục Sau Khi Phân Loại 
 ```bash
@@ -49,6 +54,16 @@ python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICO
 │   └── CBCT
 │       └── ...
 └── ...
+```
+
+---
+
+### Kiểm tra lại việc sắp xếp lại cấu trúc folders ở trên
+
+```python
+python verify_dicom_organization.py /thư/mục/đầu/ra
+# Or
+uv run verify_dicom_organization.py /thư/mục/đầu/ra
 ```
 
 ---
