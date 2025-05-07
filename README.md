@@ -25,7 +25,7 @@ python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICO
 ```
 
 ### Cấu Trúc Thư Mục Sau Khi Phân Loại 
-```markdown
+```bash
 /thư/mục/đầu/ra/
 ├── summary_report.csv                # Báo cáo tổng hợp số lượng file
 ├── 25001565                          # Thư mục bệnh nhân 1
