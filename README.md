@@ -50,7 +50,7 @@ python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICO
 │       └── ...
 └── ...
 
---
+
 
 ### Tính Năng Chính
 
