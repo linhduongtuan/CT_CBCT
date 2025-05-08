@@ -66,6 +66,12 @@ python verify_dicom_organization.py /thư/mục/đầu/ra
 uv run verify_dicom_organization.py /thư/mục/đầu/ra
 ```
 
+### Kiểm tra lại việc tìm kiếm và gom dữ liệu CT và CBCT dựa trên sự khác biệt về dung lượng và độ phân giải của các files CT và CBCT
+
+```python
+python cross_validate_dicom_stats.py /đường/dẫn/đến/thư/mục/dữ/liệu
+```
+
 ---
 
 ### Tính Năng Chính
