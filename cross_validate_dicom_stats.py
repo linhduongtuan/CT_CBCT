@@ -454,7 +454,7 @@ class DicomAnalyzer:
         return all_outliers
     
     def visualize_outliers(self):
-        """Tạo biểu đồ trực quan cho các outliers"""
+        """Tạo biểu đồ trực quan cho các outliers - ĐÃ SỬA LỖI"""
         if self.all_files_df is None or len(self.all_files_df) == 0:
             self.log("Không có dữ liệu để tạo biểu đồ")
             return
@@ -520,60 +520,49 @@ class DicomAnalyzer:
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, 'resolution_distribution.png'), dpi=300, bbox_inches='tight')
         
-        # 4. Heatmap cho outliers theo bệnh nhân và ngày
+        # 4. Heatmap cho outliers theo bệnh nhân và ngày - PHẦN ĐÃ SỬA
         try:
-            # Tạo DataFrame với số lượng outliers theo bệnh nhân, ngày chụp
-            outlier_counts = pd.DataFrame()
+            # Kiểm tra xem có outlier không
+            all_outliers = []
+            for outlier_type, outlier_list in self.outliers.items():
+                for outlier in outlier_list:
+                    all_outliers.append({
+                        'patient_id': outlier.get('patient_id', ''),
+                        'study_date': outlier.get('study_date', ''),
+                        'modality': outlier.get('modality', ''),
+                        'outlier_type': outlier_type
+                    })
             
-            if hasattr(self, 'outliers') and 'file_size' in self.outliers and len(self.outliers['file_size']) > 0:
-                size_outliers_df = pd.DataFrame(self.outliers['file_size'])
-                if len(size_outliers_df) > 0:
-                    size_counts = size_outliers_df.groupby(['patient_id', 'study_date', 'modality']).size().reset_index(name='size_outliers')
-                    
-                    if outlier_counts.empty:
-                        outlier_counts = size_counts
-                    else:
-                        outlier_counts = pd.merge(outlier_counts, size_counts, 
-                                                on=['patient_id', 'study_date', 'modality'], 
-                                                how='outer').fillna(0)
-            
-            if hasattr(self, 'outliers') and 'resolution' in self.outliers and len(self.outliers['resolution']) > 0:
-                res_outliers_df = pd.DataFrame(self.outliers['resolution'])
-                if len(res_outliers_df) > 0:
-                    res_counts = res_outliers_df.groupby(['patient_id', 'study_date', 'modality']).size().reset_index(name='resolution_outliers')
-                    
-                    if outlier_counts.empty:
-                        outlier_counts = res_counts
-                    else:
-                        outlier_counts = pd.merge(outlier_counts, res_counts, 
-                                                on=['patient_id', 'study_date', 'modality'], 
-                                                how='outer').fillna(0)
-            
-            # Tạo heatmap nếu có đủ dữ liệu
-            if not outlier_counts.empty and len(outlier_counts) > 1:
-                plt.figure(figsize=(14, 10))
+            if all_outliers:
+                # Tạo DataFrame từ tất cả các outlier
+                outlier_df = pd.DataFrame(all_outliers)
                 
-                # Tạo nhãn cho từng hàng
-                outlier_counts['label'] = outlier_counts['patient_id'] + ' (' + outlier_counts['study_date'] + ') ' + outlier_counts['modality']
+                # Tạo bảng tổng hợp (crosstab) thay vì dùng pivot
+                pivot_table = pd.crosstab(
+                    index=[outlier_df['patient_id'], outlier_df['study_date'], outlier_df['modality']],
+                    columns=outlier_df['outlier_type'],
+                    margins=True
+                )
                 
-                # Cột dữ liệu cho heatmap
-                heatmap_columns = [col for col in outlier_counts.columns if col.endswith('_outliers')]
-                
-                if heatmap_columns:
-                    # Pivot table để tạo heatmap
-                    heatmap_data = outlier_counts.pivot(index='label', columns=None, values=heatmap_columns)
-                    
-                    # Vẽ heatmap
-                    sns.heatmap(heatmap_data, annot=True, cmap="YlOrRd", fmt='g')
+                # Tạo heatmap nếu có đủ dữ liệu
+                if not pivot_table.empty and len(pivot_table) > 1:
+                    plt.figure(figsize=(10, 8))
+                    sns.heatmap(pivot_table, annot=True, cmap='YlOrRd', fmt='g')
                     plt.title('Phân bố outliers theo bệnh nhân, ngày và loại ảnh')
                     plt.tight_layout()
                     plt.savefig(os.path.join(self.output_dir, 'outliers_heatmap.png'), dpi=300, bbox_inches='tight')
+                    self.log("Đã tạo heatmap outliers thành công")
+                else:
+                    self.log("Không đủ dữ liệu để tạo heatmap outliers")
+            else:
+                self.log("Không có outliers để tạo heatmap")
+                
         except Exception as e:
             self.log(f"Lỗi khi tạo heatmap outliers: {str(e)}")
             traceback.print_exc()
         
         self.log(f"Đã tạo các biểu đồ outliers và lưu vào thư mục: {self.output_dir}")
-    
+
     def export_outliers_report(self):
         """Xuất báo cáo outliers ra file"""
         if not hasattr(self, 'outliers') or not self.outliers:
@@ -942,6 +931,5 @@ def main():
         quiet=args.quiet
     )
     analyzer.run_full_analysis()
-
 if __name__ == "__main__":
     main()
