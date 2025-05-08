@@ -70,6 +70,9 @@ uv run verify_dicom_organization.py /thư/mục/đầu/ra
 
 ```python
 python cross_validate_dicom_stats.py /đường/dẫn/đến/thư/mục/dữ/liệu
+
+# Hay chạy
+python cross_validate_dicom_stats_1.py /đường/dẫn/đến/thư/mục/dữ/liệu
 ```
 
 ---
