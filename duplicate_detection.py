@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script phát hiện và xử lý file DICOM trùng lặp - Phiên bản thông minh
+Script phát hiện và xử lý file DICOM trùng lặp - Sửa lỗi cho CBCT
 """
 
 import os
@@ -20,433 +20,218 @@ def extract_base_name(filename):
     """
     Trích xuất tên cơ bản từ tên file, loại bỏ hậu tố số
     Ví dụ: "CT.25001565.Image 1.0004.dcm" -> "CT.25001565.Image 1"
+    Đã sửa để xử lý đúng với các file trong CBCT
     """
     # Loại bỏ phần mở rộng
     base = os.path.splitext(filename)[0]
     
-    # Cải tiến pattern để nhận diện chính xác hơn
-    # Loại bỏ tất cả các hậu tố số ở cuối tên file
-    pattern = r'(\.+\d+)+$'
-    return re.sub(pattern, '', base)
-
-def extract_series_info(filename):
-    """
-    Trích xuất thông tin chuỗi ảnh từ tên file
-    Ví dụ: "CT.25001565.Image 1.0013.dcm" -> "CT.25001565.Image 1"
-    """
-    # Tìm pattern cụ thể cho tên file DICOM 
-    match = re.match(r'^([A-Z]+\.\d+\.Image\s+\d+)', filename)
-    if match:
-        return match.group(1)
+    # Tìm mẫu "Image X" hoặc "Field X" và giữ nguyên
+    image_match = re.search(r'(Image\s+\d+)', base)
+    field_match = re.search(r'(Field\s+\d+)', base)
     
-    # Tìm pattern khác (ví dụ: CT.25001565.Field 5.dcm)
-    match = re.match(r'^([A-Z]+\.\d+\.[^\.]+)', filename)
+    if image_match or field_match:
+        # Giữ lại thông tin Image/Field số
+        pattern = r'(\.+\d+)+$'
+        return re.sub(pattern, '', base)
+    else:
+        # Xử lý các trường hợp khác
+        pattern = r'(\.+\d+)+$'
+        return re.sub(pattern, '', base)
+
+def extract_image_number(filename):
+    """
+    Trích xuất số Image từ tên file DICOM
+    Ví dụ: "CT.25001565.Image 1.0004.dcm" -> "1"
+    """
+    # Tìm số Image trong tên file
+    match = re.search(r'Image\s+(\d+)', filename)
     if match:
-        return match.group(1)
-        
-    # Fallback: Chỉ lấy phần trước hậu tố số cuối cùng
-    parts = re.split(r'\.\d+\.', filename)
+        return int(match.group(1))
+    
+    # Tìm số Field trong tên file
+    match = re.search(r'Field\s+(\d+)', filename)
+    if match:
+        return int(match.group(1))
+    
+    # Nếu không có mẫu đặc biệt, trả về -1
+    return -1
+
+def get_patient_id(filename):
+    """
+    Trích xuất ID bệnh nhân từ tên file
+    Ví dụ: "CT.25001565.Image 1.0004.dcm" -> "25001565"
+    """
+    parts = filename.split('.')
     if len(parts) > 1:
-        return parts[0]
-    
-    # Nếu không khớp pattern, trả về tên không có phần mở rộng
-    return os.path.splitext(filename)[0]
+        return parts[1]
+    return "unknown"
 
-def get_file_hash(file_path, block_size=65536):
+def should_ignore_cbct(root_dir):
     """
-    Tính toán hash của file để so sánh nội dung
+    Kiểm tra xem có nên bỏ qua thư mục CBCT không
+    Trả về True nếu các file CBCT không nên được xem là trùng lặp
     """
-    hasher = hashlib.md5()
-    with open(file_path, 'rb') as f:
-        buf = f.read(block_size)
-        while len(buf) > 0:
-            hasher.update(buf)
-            buf = f.read(block_size)
-    return hasher.hexdigest()
+    return True  # Luôn bỏ qua thư mục CBCT để không xem là trùng lặp
 
-def extract_image_hash(file_path):
-    """
-    Trích xuất hash chỉ của dữ liệu hình ảnh (bỏ qua metadata)
-    """
-    try:
-        dcm = pydicom.dcmread(file_path)
-        if hasattr(dcm, 'PixelData'):
-            hasher = hashlib.md5()
-            hasher.update(dcm.PixelData)
-            return hasher.hexdigest()
-    except:
-        pass
-    return None
-
-def get_image_resolution(file_path):
-    """
-    Trích xuất độ phân giải hình ảnh
-    """
-    try:
-        dcm = pydicom.dcmread(file_path, force=True, stop_before_pixels=True)
-        if hasattr(dcm, 'Rows') and hasattr(dcm, 'Columns'):
-            return dcm.Rows * dcm.Columns
-    except:
-        pass
-    return 0
-
-def get_dicom_key_attributes(dcm):
-    """
-    Lấy các thuộc tính quan trọng từ file DICOM để so sánh
-    """
-    attributes = {}
-    
-    # Các thuộc tính quan trọng để xác định trùng lặp
-    key_attrs = [
-        'SOPInstanceUID',
-        'SeriesInstanceUID',
-        'StudyInstanceUID',
-        'InstanceNumber',
-        'ImagePositionPatient',
-        'AcquisitionTime',
-        'ContentTime',
-        'Rows',
-        'Columns',
-        'BitsAllocated'
-    ]
-    
-    for attr in key_attrs:
-        if hasattr(dcm, attr):
-            attributes[attr] = getattr(dcm, attr)
-    
-    return attributes
-
-def find_duplicate_files(root_dir, hash_method='advanced', verbose=True):
-    """
-    Tìm tất cả các file DICOM trùng lặp
-    
-    Tham số:
-    - root_dir: Thư mục gốc chứa các file đã phân loại
-    - hash_method: Phương pháp phát hiện ('filename', 'metadata', 'content', 'advanced', 'pattern')
-    - verbose: Hiển thị thông tin chi tiết
-    
-    Trả về:
-    - Dictionary chứa thông tin về các file trùng lặp
-    """
-    if verbose:
-        print(f"Đang quét {root_dir} để tìm file DICOM trùng lặp...")
-    
-    # Tìm tất cả file DICOM
-    dicom_files = glob.glob(os.path.join(root_dir, "**/*.dcm"), recursive=True)
-    
-    if verbose:
-        print(f"Tìm thấy {len(dicom_files)} file DICOM. Đang phân tích...")
-    
-    duplicates = defaultdict(list)
-    processed_files = 0
-    error_files = []
-    
-    # Tùy thuộc vào phương pháp phát hiện
-    if hash_method == 'filename':
-        # Phương pháp 1: Dựa vào tên file cơ bản
-        for file_path in tqdm(dicom_files, desc="Đang phân tích tên file"):
-            filename = os.path.basename(file_path)
-            base_name = extract_base_name(filename)
-            duplicates[base_name].append(file_path)
-            processed_files += 1
-    
-    elif hash_method == 'pattern':
-        # Phương pháp mới: Dựa vào pattern tên file
-        for file_path in tqdm(dicom_files, desc="Đang phân tích pattern tên file"):
-            filename = os.path.basename(file_path)
-            series_info = extract_series_info(filename)
-            duplicates[series_info].append(file_path)
-            processed_files += 1
-    
-    elif hash_method == 'metadata':
-        # Phương pháp 2: Dựa vào metadata DICOM
-        for file_path in tqdm(dicom_files, desc="Đang phân tích metadata DICOM"):
-            try:
-                dcm = pydicom.dcmread(file_path, force=True, stop_before_pixels=True)
-                
-                # Sử dụng SOPInstanceUID làm khóa chính
-                if hasattr(dcm, 'SOPInstanceUID'):
-                    key = dcm.SOPInstanceUID
-                    duplicates[key].append(file_path)
-                else:
-                    # Backup: Sử dụng SeriesInstanceUID + InstanceNumber nếu có
-                    if hasattr(dcm, 'SeriesInstanceUID') and hasattr(dcm, 'InstanceNumber'):
-                        key = f"{dcm.SeriesInstanceUID}_{dcm.InstanceNumber}"
-                        duplicates[key].append(file_path)
-                    else:
-                        # Fallback: Sử dụng tên file cơ bản
-                        filename = os.path.basename(file_path)
-                        base_name = extract_base_name(filename)
-                        duplicates[base_name].append(file_path)
-                
-                processed_files += 1
-            except Exception as e:
-                error_files.append((file_path, str(e)))
-                continue
-    
-    elif hash_method == 'content':
-        # Phương pháp 3: Dựa vào nội dung file (MD5 hash)
-        for file_path in tqdm(dicom_files, desc="Đang tính toán hash file"):
-            try:
-                file_hash = get_file_hash(file_path)
-                duplicates[file_hash].append(file_path)
-                processed_files += 1
-            except Exception as e:
-                error_files.append((file_path, str(e)))
-                continue
-    
-    elif hash_method == 'advanced':
-        # Phương pháp kết hợp: Dựa vào pattern tên file + thông tin cơ bản
-        patient_groups = defaultdict(list)
-        
-        # Phân nhóm các file theo bệnh nhân để giảm scope so sánh
-        for file_path in tqdm(dicom_files, desc="Đang nhóm file theo bệnh nhân"):
-            filename = os.path.basename(file_path)
-            parts = filename.split('.')
-            if len(parts) > 1:
-                patient_id = parts[1]  # Lấy phần PatientID từ tên file
-                patient_groups[patient_id].append(file_path)
-            else:
-                # Không theo pattern, nhóm vào 'unknown'
-                patient_groups['unknown'].append(file_path)
-        
-        # Xử lý từng nhóm bệnh nhân
-        for patient_id, files in tqdm(patient_groups.items(), desc="Đang phân tích theo bệnh nhân"):
-            # Tạo dict ánh xạ series info đến danh sách file
-            series_files = defaultdict(list)
-            
-            for file_path in files:
-                filename = os.path.basename(file_path)
-                series_info = extract_series_info(filename)
-                series_files[series_info].append(file_path)
-            
-            # Thêm vào kết quả chung
-            for series_info, series_file_list in series_files.items():
-                key = f"{patient_id}_{series_info}"
-                duplicates[key].extend(series_file_list)
-                processed_files += len(series_file_list)
-    
-    # Lọc ra chỉ giữ lại các nhóm có nhiều hơn 1 file (thực sự trùng lặp)
-    true_duplicates = {key: files for key, files in duplicates.items() if len(files) > 1}
-    
-    if verbose:
-        print(f"\nĐã phân tích {processed_files}/{len(dicom_files)} file DICOM.")
-        print(f"Phát hiện {len(true_duplicates)} nhóm file trùng lặp với tổng số {sum(len(files) for files in true_duplicates.values())} file.")
-        
-        if error_files:
-            print(f"Có {len(error_files)} file gặp lỗi khi phân tích.")
-    
-    return true_duplicates, error_files
-
-def rank_duplicate_files(duplicate_files):
-    """
-    Xếp hạng các file trùng lặp để quyết định file nào giữ lại
-    Quy tắc xếp hạng: 
-    1. Ưu tiên khác nhau cho từng loại thư mục:
-       - Thư mục CT: Ưu tiên file có dung lượng NHỎ hơn
-       - Thư mục CBCT: Ưu tiên file có dung lượng LỚN hơn
-    2. Ưu tiên file ở thư mục chính (CT, RI, RS) hơn là thư mục phụ (CBCT)
-    3. Ưu tiên file có ít hậu tố số
-    """
-    ranked_duplicates = {}
-    
-    for key, files in duplicate_files.items():
-        ranked_files = []
-        
-        # Phân loại file theo thư mục
-        ct_files = []
-        cbct_files = []
-        other_files = []
-        
-        for file_path in files:
-            folder_path = os.path.dirname(file_path)
-            normalized_path = folder_path.replace('\\', '/')
-            
-            if '/CT/' in normalized_path:
-                ct_files.append(file_path)
-            elif '/CBCT/' in normalized_path:
-                cbct_files.append(file_path)
-            else:
-                other_files.append(file_path)
-        
-        # Xếp hạng từng nhóm file
-        for file_path in files:
-            # Lấy thông tin cơ bản
-            file_size = os.path.getsize(file_path)
-            folder_path = os.path.dirname(file_path)
-            normalized_path = folder_path.replace('\\', '/')
-            file_name = os.path.basename(file_path)
-            
-            # Đếm số hậu tố
-            suffix_count = len(re.findall(r'\.\d+', file_name))
-            
-            # Kiểm tra loại thư mục
-            folder_priority = 10  # Mặc định
-            is_ct_folder = False
-            size_score = 0
-            
-            if '/CT/' in normalized_path:
-                folder_priority = 1
-                is_ct_folder = True
-                # Đối với CT, ưu tiên file nhỏ hơn (âm điểm số)
-                size_score = -file_size
-            elif '/RI/' in normalized_path:
-                folder_priority = 2
-                # Đối với RI, ưu tiên file lớn hơn
-                size_score = file_size
-            elif '/RS/' in normalized_path:
-                folder_priority = 3
-                size_score = file_size
-            elif '/RT/' in normalized_path:
-                folder_priority = 4
-                size_score = file_size
-            elif '/RD/' in normalized_path:
-                folder_priority = 5
-                size_score = file_size
-            elif '/RE/' in normalized_path:
-                folder_priority = 6
-                size_score = file_size
-            elif '/CBCT/' in normalized_path:
-                folder_priority = 7
-                # Đối với CBCT, ưu tiên file lớn hơn
-                size_score = file_size
-            
-            # Kiểm tra độ phân giải (chỉ cho CBCT hoặc loại khác ngoài CT)
-            resolution_score = 0
-            if not is_ct_folder:
-                resolution = get_image_resolution(file_path)
-                resolution_score = resolution
-            
-            # Tính điểm tổng, với CT thì ưu tiên file nhỏ hơn
-            final_score = size_score - (suffix_count * 1000) - (folder_priority * 10000) + resolution_score
-            
-            ranked_files.append({
-                'path': file_path,
-                'size': file_size,
-                'folder_priority': folder_priority,
-                'suffix_count': suffix_count,
-                'is_ct_folder': is_ct_folder,
-                'resolution': resolution_score,
-                'size_score': size_score,
-                'score': final_score
-            })
-        
-        # Sắp xếp theo điểm số giảm dần
-        ranked_files.sort(key=lambda x: x['score'], reverse=True)
-        ranked_duplicates[key] = ranked_files
-    
-    return ranked_duplicates
-
-def process_duplicates(root_dir, output_dir, hash_method='advanced', action='report', verbose=True):
+def process_duplicates(root_dir, output_dir, action='report', verbose=True):
     """
     Xử lý các file DICOM trùng lặp
     
     Tham số:
     - root_dir: Thư mục gốc chứa các file đã phân loại
     - output_dir: Thư mục lưu báo cáo và file trùng lặp
-    - hash_method: Phương pháp phát hiện ('filename', 'metadata', 'content', 'advanced', 'pattern')
-    - action: Hành động xử lý ('report', 'move', 'delete')
+    - action: Hành động xử lý ('report', 'move')
     - verbose: Hiển thị thông tin chi tiết
     
     Trả về:
     - Đường dẫn đến báo cáo
     """
-    # Tìm các file trùng lặp
-    original_duplicates, error_files = find_duplicate_files(root_dir, hash_method, verbose)
-    
-    # Lưu thông tin tổng số file và nhóm để sử dụng sau này
-    total_files = sum(len(files) for files in original_duplicates.values())
-    total_groups = len(original_duplicates)
-    total_duplicates = sum(len(files) - 1 for files in original_duplicates.values())
-    
-    # Xếp hạng các file trùng lặp
-    ranked_duplicates = rank_duplicate_files(original_duplicates)
+    if verbose:
+        print(f"Đang quét {root_dir} để tìm file DICOM trùng lặp...")
     
     # Tạo thư mục output nếu chưa tồn tại
     os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Lưu thông tin các file gặp lỗi
-    if error_files:
-        error_df = pd.DataFrame(error_files, columns=['File Path', 'Error'])
-        error_path = os.path.join(output_dir, 'error_files.csv')
-        error_df.to_csv(error_path, index=False)
-        if verbose:
-            print(f"Đã lưu thông tin các file lỗi vào: {error_path}")
+    # Đếm số file đã quét và xử lý
+    total_scanned = 0
+    total_duplicates = 0
+    total_kept = 0
+    total_processed = 0
     
-    # Tạo báo cáo
+    # Biến lưu trữ thông tin báo cáo
     report_rows = []
     
-    for key, ranked_files in ranked_duplicates.items():
-        best_file = ranked_files[0]
-        
-        for i, file_info in enumerate(ranked_files):
-            report_rows.append({
-                'Group Key': key,
-                'File Path': file_info['path'],
-                'File Size (KB)': round(file_info['size'] / 1024, 2),
-                'Is CT Folder': file_info['is_ct_folder'],
-                'Folder Priority': file_info['folder_priority'],
-                'Suffix Count': file_info['suffix_count'],
-                'Resolution Score': file_info['resolution'],
-                'Size Score': file_info['size_score'],
-                'Final Score': file_info['score'],
-                'Is Best Match': i == 0,
-                'Action': 'Keep' if i == 0 else action.capitalize()
-            })
-    
-    # Tạo DataFrame và lưu báo cáo
-    report_df = pd.DataFrame(report_rows)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_path = os.path.join(output_dir, f'duplicate_report_{timestamp}.xlsx')
-    report_df.to_excel(report_path, index=False)
+    # Duyệt qua tất cả thư mục bệnh nhân
+    patient_dirs = [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
     
     if verbose:
-        print(f"\nĐã tạo báo cáo file trùng lặp: {report_path}")
+        print(f"Tìm thấy {len(patient_dirs)} thư mục bệnh nhân")
     
-    # Thực hiện hành động với các file trùng lặp
-    processed_count = 0
-    
-    if action in ['move', 'delete']:
-        duplicate_dir = os.path.join(output_dir, 'duplicates')
-        if action == 'move':
-            os.makedirs(duplicate_dir, exist_ok=True)
+    for patient_dir in tqdm(patient_dirs, desc="Xử lý từng bệnh nhân"):
+        patient_path = os.path.join(root_dir, patient_dir)
         
-        for key, ranked_files in tqdm(ranked_duplicates.items(), desc=f"Đang {action} file trùng lặp"):
-            # Bỏ qua file đầu tiên (file tốt nhất)
-            duplicate_files = [file_info['path'] for file_info in ranked_files[1:]]
+        # Kiểm tra từng loại thư mục (CT, CBCT, etc.)
+        for folder_type in os.listdir(patient_path):
+            folder_type_path = os.path.join(patient_path, folder_type)
             
-            for file_path in duplicate_files:
-                try:
-                    if action == 'move':
-                        # Tạo thư mục con tương ứng với cấu trúc ban đầu
-                        rel_path = os.path.relpath(file_path, root_dir)
-                        dest_path = os.path.join(duplicate_dir, rel_path)
-                        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                        
-                        # Di chuyển file
-                        shutil.move(file_path, dest_path)
-                    else:  # action == 'delete'
-                        os.remove(file_path)
+            # Chỉ xử lý thư mục
+            if not os.path.isdir(folder_type_path):
+                continue
+            
+            # Bỏ qua thư mục CBCT
+            if folder_type == 'CBCT' and should_ignore_cbct(root_dir):
+                if verbose:
+                    print(f"Bỏ qua thư mục CBCT cho bệnh nhân {patient_dir} (không xem là trùng lặp)")
+                continue
+            
+            # Chỉ xử lý thư mục CT
+            if folder_type != 'CT':
+                if verbose:
+                    print(f"Bỏ qua thư mục {folder_type} cho bệnh nhân {patient_dir} (chỉ xử lý CT)")
+                continue
+            
+            # Duyệt qua các thư mục ngày
+            for date_folder in os.listdir(folder_type_path):
+                date_path = os.path.join(folder_type_path, date_folder)
+                if not os.path.isdir(date_path):
+                    continue
+                
+                # Lấy tất cả file DICOM trong thư mục ngày
+                dicom_files = glob.glob(os.path.join(date_path, "*.dcm"))
+                total_scanned += len(dicom_files)
+                
+                if not dicom_files:
+                    continue
+                
+                # Nhóm file theo image_base_name (không bao gồm hậu tố số)
+                image_groups = defaultdict(list)
+                
+                for file_path in dicom_files:
+                    filename = os.path.basename(file_path)
+                    base_name = extract_base_name(filename)
+                    image_groups[base_name].append(file_path)
+                
+                # Loại bỏ các nhóm chỉ có 1 file (không trùng lặp)
+                duplicate_groups = {k: v for k, v in image_groups.items() if len(v) > 1}
+                
+                # Xử lý từng nhóm trùng lặp
+                for base_name, files in duplicate_groups.items():
+                    # Đếm số lượng trùng lặp
+                    total_duplicates += len(files) - 1
+                    total_kept += 1
                     
-                    processed_count += 1
-                except Exception as e:
-                    if verbose:
-                        print(f"Lỗi khi {action} file {file_path}: {e}")
+                    # Sắp xếp theo kích thước tăng dần (ưu tiên file nhỏ hơn cho CT)
+                    sorted_files = sorted(files, key=os.path.getsize)
+                    
+                    # File đầu tiên là file nhỏ nhất, giữ lại
+                    best_file = sorted_files[0]
+                    
+                    # Thêm thông tin file giữ lại vào báo cáo
+                    report_rows.append({
+                        'Patient ID': patient_dir,
+                        'Folder Type': folder_type,
+                        'Date': date_folder,
+                        'Base Name': base_name,
+                        'File Path': best_file,
+                        'File Size (KB)': round(os.path.getsize(best_file) / 1024, 2),
+                        'Action': 'Keep',
+                        'Is Best Match': True
+                    })
+                    
+                    # Xử lý các file còn lại (trùng lặp)
+                    for file_path in sorted_files[1:]:
+                        # Thêm thông tin vào báo cáo
+                        report_rows.append({
+                            'Patient ID': patient_dir,
+                            'Folder Type': folder_type,
+                            'Date': date_folder,
+                            'Base Name': base_name,
+                            'File Path': file_path,
+                            'File Size (KB)': round(os.path.getsize(file_path) / 1024, 2),
+                            'Action': action.capitalize(),
+                            'Is Best Match': False
+                        })
+                        
+                        # Thực hiện di chuyển nếu action là 'move'
+                        if action == 'move':
+                            try:
+                                # Tạo thư mục duplicates
+                                duplicate_dir = os.path.join(output_dir, 'duplicates')
+                                os.makedirs(duplicate_dir, exist_ok=True)
+                                
+                                # Tạo thư mục con tương ứng với cấu trúc ban đầu
+                                rel_path = os.path.relpath(file_path, root_dir)
+                                dest_path = os.path.join(duplicate_dir, rel_path)
+                                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                                
+                                # Di chuyển file
+                                shutil.move(file_path, dest_path)
+                                total_processed += 1
+                            except Exception as e:
+                                if verbose:
+                                    print(f"Lỗi khi di chuyển file {file_path}: {e}")
+    
+    # Tạo DataFrame và lưu báo cáo
+    if report_rows:
+        report_df = pd.DataFrame(report_rows)
+        report_path = os.path.join(output_dir, f'ct_duplicate_report_{timestamp}.xlsx')
+        report_df.to_excel(report_path, index=False)
         
         if verbose:
-            if action == 'move':
-                print(f"Đã di chuyển {processed_count} file trùng lặp vào: {duplicate_dir}")
-            else:
-                print(f"Đã xóa {processed_count} file trùng lặp")
+            print(f"\nĐã tạo báo cáo file trùng lặp: {report_path}")
+    else:
+        report_path = None
+        if verbose:
+            print("\nKhông tìm thấy file trùng lặp nào.")
     
-    # Tạo báo cáo tổng hợp - SỬA LỖI: dùng giá trị đã lưu trước đó
+    # Tạo báo cáo tổng hợp
     summary = {
-        'Total Scan Files': total_files,
-        'Duplicate Groups': total_groups,
+        'Total Scanned Files': total_scanned,
+        'Duplicate Groups': total_kept,
         'Total Duplicates': total_duplicates,
-        'Files To Keep': total_groups,
-        'Files Processed': processed_count,
-        'Error Files': len(error_files)
+        'Files To Keep': total_kept,
+        'Files Processed': total_processed if action == 'move' else 0
     }
     
     summary_df = pd.DataFrame([summary])
@@ -458,30 +243,33 @@ def process_duplicates(root_dir, output_dir, hash_method='advanced', action='rep
         for key, value in summary.items():
             print(f"- {key}: {value}")
         print(f"Đã lưu báo cáo tổng hợp vào: {summary_path}")
+        
+        if action == 'move' and total_processed > 0:
+            print(f"Đã di chuyển {total_processed} file trùng lặp vào: {os.path.join(output_dir, 'duplicates')}")
     
-    return report_path, summary
+    return report_path
 
 def main():
-    parser = argparse.ArgumentParser(description='Phát hiện và xử lý file DICOM trùng lặp')
+    parser = argparse.ArgumentParser(description='Phát hiện và xử lý file DICOM trùng lặp - Chỉ xử lý thư mục CT')
     parser.add_argument('input_dir', help='Thư mục chứa các file DICOM đã phân loại')
     parser.add_argument('--output', '-o', default='duplicate_reports', help='Thư mục lưu báo cáo và file trùng lặp')
-    parser.add_argument('--method', '-m', 
-                      choices=['filename', 'metadata', 'content', 'advanced', 'pattern'], 
-                      default='advanced',
-                      help='Phương pháp phát hiện trùng lặp (filename, metadata, content, advanced, pattern)')
-    parser.add_argument('--action', '-a', choices=['report', 'move', 'delete'], default='report',
-                        help='Hành động xử lý (report: chỉ báo cáo, move: di chuyển, delete: xóa)')
+    parser.add_argument('--action', '-a', choices=['report', 'move'], default='report',
+                        help='Hành động xử lý (report: chỉ báo cáo, move: di chuyển)')
     parser.add_argument('--quiet', '-q', action='store_true', help='Không hiển thị thông tin chi tiết')
     
     args = parser.parse_args()
     
     start_time = datetime.now()
     
+    if not args.quiet:
+        print(f"Bắt đầu phát hiện và xử lý file trùng lặp từ: {args.input_dir}")
+        print(f"Hành động: {args.action}")
+        print(f"LƯU Ý: Chỉ xử lý các file trong thư mục CT, bỏ qua hoàn toàn CBCT và các thư mục khác.")
+    
     # Xử lý các file trùng lặp
     process_duplicates(
         args.input_dir, 
         args.output, 
-        hash_method=args.method, 
         action=args.action, 
         verbose=not args.quiet
     )
