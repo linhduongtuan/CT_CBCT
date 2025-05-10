@@ -67,14 +67,25 @@ python duplicate_detection.py /thư/mục/đầu/ra  --method pattern
 # Di chuyển các file trùng lặp vào thư mục riêng
 python duplicate_detection.py /thư/mục/đầu/ra  --action move
 
-# Xóa trực tiếp các file trùng lặp (giữ lại file tốt nhất)
-python duplicate_detection.py /thư/mục/đầu/ra  --action delete
 ```
 
 #### Có thể kiểm tra lại 1 lần nữa thư mục vừa kiểm tra các files trùng lặp
 
 ```python
 python duplicate_detection.py /thư/mục/đầu/ra 
+```
+
+### Lưu ý: dường như files trùng lặp chỉ xuất hiện trong các folder chứa ảnh CT, nên ta chỉ nên chạy đoạn code này (thay vì chạy script duplicate_dêtction.py)
+
+```python
+# Chỉ tạo báo cáo trùng lặp trong thư mục CT (không thay đổi file)
+python duplicate_detection_ct_only.py /thư/mục/đầu/ra --action report
+
+# Di chuyển các file trùng lặp trong CT (giữ lại file nhỏ nhất)
+python duplicate_detection_ct_only.py /thư/mục/đầu/ra --action move
+
+# Xóa các file trùng lặp trong CT (giữ lại file nhỏ nhất)
+python duplicate_detection_ct_only.py /thư/mục/đầu/ra --action delete
 ```
 
 ---
