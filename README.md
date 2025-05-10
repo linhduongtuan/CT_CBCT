@@ -75,7 +75,7 @@ python duplicate_detection.py /thư/mục/đầu/ra  --action move
 python duplicate_detection.py /thư/mục/đầu/ra 
 ```
 
-### Lưu ý: dường như files trùng lặp chỉ xuất hiện trong các folder chứa ảnh CT, nên ta chỉ nên chạy đoạn code này (thay vì chạy script duplicate_dêtction.py)
+### Lưu ý: dường như files trùng lặp chỉ xuất hiện trong các folder chứa ảnh CT, nên ta chỉ nên chạy đoạn code này (thay vì chạy script duplicate_detection.py)
 
 ```python
 # Chỉ tạo báo cáo trùng lặp trong thư mục CT (không thay đổi file)
