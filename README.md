@@ -61,9 +61,6 @@ python duplicate_detection.py /thư/mục/đầu/ra
 # /thư/mục/đầu/ra là thư mục chạy ở bước truóc đó với script:
 # `python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICOM --output /thư/mục/đầu/ra --workers 8`
 
-# Sử dụng phương pháp phát hiện dựa trên pattern tên file
-python duplicate_detection.py /thư/mục/đầu/ra  --method pattern
-
 # Di chuyển các file trùng lặp vào thư mục riêng
 python duplicate_detection.py /thư/mục/đầu/ra  --action move
 
