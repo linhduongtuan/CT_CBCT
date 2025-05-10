@@ -31,29 +31,24 @@ python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICO
 
 ### Cấu Trúc Thư Mục Sau Khi Phân Loại 
 ```bash
-/thư/mục/đầu/ra/
-├── summary_report.csv                # Báo cáo tổng hợp số lượng file
-├── 25001565                          # Thư mục bệnh nhân 1
-│   ├── CT                            # Thư mục ảnh CT
-│   │   ├── 2023-01-15                # Ngày chụp
-│   │   │   ├── CT.25001565.Image1.dcm
-│   │   │   ├── CT.25001565.Image2.dcm
-│   │   │   └── ...
-│   │   └── 2023-02-10
-│   │       └── ...
-│   └── CBCT                          # Thư mục ảnh CBCT
-│       ├── 2023-01-20                # Ngày điều trị
-│       │   ├── RI.25001565.MV_1.dcm
-│       │   └── ...
-│       ├── 2023-01-25
-│       │   └── ...
-│       └── ...
-├── 25001566                          # Thư mục bệnh nhân 2
-│   ├── CT
-│   │   └── ...
-│   └── CBCT
-│       └── ...
-└── ...
+thư_mục_đã_tổ_chức/
+├── 20138770/                      # ID bệnh nhân
+│   ├── CT/                        # Chỉ chứa ảnh CT ngày đầu tiên
+│   │   └── 2024-11-21/            # Ngày chụp ban đầu
+│   │       └── CT.20138770.*.dcm
+│   ├── CBCT/                      # Thư mục mới cho ảnh CBCT
+│   │   ├── 2024-12-05/            # Ngày điều trị
+│   │   │   └── CT.20138770.*.dcm
+│   │   └── 2024-12-10/            # Ngày điều trị khác
+│   │       └── CT.20138770.*.dcm
+│   ├── RS/                        # Structure sets
+│   ├── RI/                        # Các ảnh RT Image khác
+│   ├── RT/                        # RT Plans
+│   └── RD/                        # RT Dose
+└── 25001565/                      # Bệnh nhân khác
+    ├── CT/
+    ├── CBCT/
+    └── ...
 ```
 
 ---
