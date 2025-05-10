@@ -53,6 +53,32 @@ thư_mục_đã_tổ_chức/
 
 ---
 
+## Kiểm tra và loại bỏ các files (có thể) trùng lặp trong các thư mục sau khi phân loại
+
+```python
+# Sử dụng phương pháp mới "advanced" (mặc định)
+python duplicate_detection.py /thư/mục/đầu/ra 
+# /thư/mục/đầu/ra là thư mục chạy ở bước truóc đó với script:
+# `python organize_dicom_by_patient_date.py /đường/dẫn/đến/thư/mục/DICOM --output /thư/mục/đầu/ra --workers 8`
+
+# Sử dụng phương pháp phát hiện dựa trên pattern tên file
+python duplicate_detection.py /thư/mục/đầu/ra  --method pattern
+
+# Di chuyển các file trùng lặp vào thư mục riêng
+python duplicate_detection.py /thư/mục/đầu/ra  --action move
+
+# Xóa trực tiếp các file trùng lặp (giữ lại file tốt nhất)
+python duplicate_detection.py /thư/mục/đầu/ra  --action delete
+```
+
+#### Có thể kiểm tra lại 1 lần nữa thư mục vừa kiểm tra các files trùng lặp
+
+```python
+python duplicate_detection.py /thư/mục/đầu/ra 
+```
+
+---
+
 ### Kiểm tra lại việc sắp xếp lại cấu trúc folders ở trên
 
 ```python
@@ -83,12 +109,6 @@ python cross_validate_dicom_stats_1.py /đường/dẫn/đến/thư/mục/dữ/l
 - Xử lý song song để tăng tốc độ với số lượng ảnh lớn
   
 - Lựa chọn sao chép hoặc tạo liên kết để tiết kiệm không gian
-
-**Script này xử lý hiệu quả cả hai loại file chính:**
-
-- CT.* - Ảnh CT lập kế hoạch điều trị
-  
-- RI.* - Ảnh CBCT kiểm tra vị trí
 
 **Lưu Ý:**
 
