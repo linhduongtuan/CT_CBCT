@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script phát hiện và xử lý file DICOM trùng lặp - Phiên bản cải tiến
+Script phát hiện và xử lý file DICOM trùng lặp - Phiên bản thông minh
 """
 
 import os
@@ -77,6 +77,18 @@ def extract_image_hash(file_path):
     except:
         pass
     return None
+
+def get_image_resolution(file_path):
+    """
+    Trích xuất độ phân giải hình ảnh
+    """
+    try:
+        dcm = pydicom.dcmread(file_path, force=True, stop_before_pixels=True)
+        if hasattr(dcm, 'Rows') and hasattr(dcm, 'Columns'):
+            return dcm.Rows * dcm.Columns
+    except:
+        pass
+    return 0
 
 def get_dicom_key_attributes(dcm):
     """
@@ -230,7 +242,9 @@ def rank_duplicate_files(duplicate_files):
     """
     Xếp hạng các file trùng lặp để quyết định file nào giữ lại
     Quy tắc xếp hạng: 
-    1. Ưu tiên file có kích thước lớn hơn
+    1. Ưu tiên khác nhau cho từng loại thư mục:
+       - Thư mục CT: Ưu tiên file có dung lượng NHỎ hơn
+       - Thư mục CBCT: Ưu tiên file có dung lượng LỚN hơn
     2. Ưu tiên file ở thư mục chính (CT, RI, RS) hơn là thư mục phụ (CBCT)
     3. Ưu tiên file có ít hậu tố số
     """
@@ -239,10 +253,28 @@ def rank_duplicate_files(duplicate_files):
     for key, files in duplicate_files.items():
         ranked_files = []
         
+        # Phân loại file theo thư mục
+        ct_files = []
+        cbct_files = []
+        other_files = []
+        
+        for file_path in files:
+            folder_path = os.path.dirname(file_path)
+            normalized_path = folder_path.replace('\\', '/')
+            
+            if '/CT/' in normalized_path:
+                ct_files.append(file_path)
+            elif '/CBCT/' in normalized_path:
+                cbct_files.append(file_path)
+            else:
+                other_files.append(file_path)
+        
+        # Xếp hạng từng nhóm file
         for file_path in files:
             # Lấy thông tin cơ bản
             file_size = os.path.getsize(file_path)
             folder_path = os.path.dirname(file_path)
+            normalized_path = folder_path.replace('\\', '/')
             file_name = os.path.basename(file_path)
             
             # Đếm số hậu tố
@@ -250,27 +282,53 @@ def rank_duplicate_files(duplicate_files):
             
             # Kiểm tra loại thư mục
             folder_priority = 10  # Mặc định
-            if '/CT/' in folder_path.replace('\\', '/'):
+            is_ct_folder = False
+            size_score = 0
+            
+            if '/CT/' in normalized_path:
                 folder_priority = 1
-            elif '/RI/' in folder_path.replace('\\', '/'):
+                is_ct_folder = True
+                # Đối với CT, ưu tiên file nhỏ hơn (âm điểm số)
+                size_score = -file_size
+            elif '/RI/' in normalized_path:
                 folder_priority = 2
-            elif '/RS/' in folder_path.replace('\\', '/'):
+                # Đối với RI, ưu tiên file lớn hơn
+                size_score = file_size
+            elif '/RS/' in normalized_path:
                 folder_priority = 3
-            elif '/RT/' in folder_path.replace('\\', '/'):
+                size_score = file_size
+            elif '/RT/' in normalized_path:
                 folder_priority = 4
-            elif '/RD/' in folder_path.replace('\\', '/'):
+                size_score = file_size
+            elif '/RD/' in normalized_path:
                 folder_priority = 5
-            elif '/RE/' in folder_path.replace('\\', '/'):
+                size_score = file_size
+            elif '/RE/' in normalized_path:
                 folder_priority = 6
-            elif '/CBCT/' in folder_path.replace('\\', '/'):
+                size_score = file_size
+            elif '/CBCT/' in normalized_path:
                 folder_priority = 7
+                # Đối với CBCT, ưu tiên file lớn hơn
+                size_score = file_size
+            
+            # Kiểm tra độ phân giải (chỉ cho CBCT hoặc loại khác ngoài CT)
+            resolution_score = 0
+            if not is_ct_folder:
+                resolution = get_image_resolution(file_path)
+                resolution_score = resolution
+            
+            # Tính điểm tổng, với CT thì ưu tiên file nhỏ hơn
+            final_score = size_score - (suffix_count * 1000) - (folder_priority * 10000) + resolution_score
             
             ranked_files.append({
                 'path': file_path,
                 'size': file_size,
                 'folder_priority': folder_priority,
                 'suffix_count': suffix_count,
-                'score': file_size - (suffix_count * 1000) - (folder_priority * 10000)
+                'is_ct_folder': is_ct_folder,
+                'resolution': resolution_score,
+                'size_score': size_score,
+                'score': final_score
             })
         
         # Sắp xếp theo điểm số giảm dần
@@ -326,9 +384,12 @@ def process_duplicates(root_dir, output_dir, hash_method='advanced', action='rep
                 'Group Key': key,
                 'File Path': file_info['path'],
                 'File Size (KB)': round(file_info['size'] / 1024, 2),
+                'Is CT Folder': file_info['is_ct_folder'],
                 'Folder Priority': file_info['folder_priority'],
                 'Suffix Count': file_info['suffix_count'],
-                'Score': file_info['score'],
+                'Resolution Score': file_info['resolution'],
+                'Size Score': file_info['size_score'],
+                'Final Score': file_info['score'],
                 'Is Best Match': i == 0,
                 'Action': 'Keep' if i == 0 else action.capitalize()
             })
